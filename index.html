@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CLI Tic-Tac-Toe — Unbeatable AI (Minimax)</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#071227; --accent:#00d4ff; --muted:#9fb7c6;
+    --grid:#0f2a3a; --cell:#071b26; --win:#16a34a;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;color:#e6f7fb;background:linear-gradient(180deg,var(--bg),#04101a)}
+  .wrap{max-width:920px;margin:28px auto;padding:20px;display:grid;grid-template-columns:1fr 360px;gap:20px}
+  .panel{background:linear-gradient(180deg,var(--panel), rgba(255,255,255,0.02));border-radius:12px;padding:18px;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
+  /* Left: board + controls */
+  .board-area{display:flex;flex-direction:column;gap:14px;align-items:center}
+  .board{width:360px;height:360px;background:linear-gradient(180deg,var(--grid),#082033);display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:10px;padding:10px;border-radius:10px}
+  .cell{background:linear-gradient(180deg,var(--cell),#06202a);display:flex;align-items:center;justify-content:center;font-size:64px;font-weight:800;color:var(--accent);cursor:pointer;border-radius:8px;user-select:none;transition:transform .08s ease,box-shadow .08s ease}
+  .cell:hover{transform:translateY(-4px);box-shadow:0 8px 18px rgba(0,0,0,0.4)}
+  .cell.disabled{cursor:not-allowed;opacity:.6;transform:none}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .btn{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:10px 12px;border-radius:8px;color:var(--muted);cursor:pointer;font-weight:600}
+  .btn.primary{background:linear-gradient(90deg,var(--accent),#06b6d4);color:#042027;border:0;box-shadow:0 8px 24px rgba(0,212,255,0.08)}
+  .small{font-size:13px;color:var(--muted)}
+  /* Right: CLI-ish log + options */
+  .side{display:flex;flex-direction:column;gap:12px}
+  .log{background:#031019;border-radius:8px;padding:12px;height:320px;overflow:auto;font-family:monospace;font-size:13px;color:#bfefff;border:1px solid rgba(255,255,255,0.02)}
+  .option-row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+  .select, .radio-group{display:flex;gap:8px;align-items:center}
+  label{font-size:13px;color:var(--muted)}
+  .status{padding:10px;border-radius:8px;background:rgba(255,255,255,0.02);font-weight:700;color:var(--muted);text-align:center}
+  .winner{color:var(--win)}
+  footer{grid-column:1/-1;text-align:center;color:#7da9b6;font-size:13px;margin-top:6px}
+  @media (max-width:880px){.wrap{grid-template-columns:1fr;padding:12px}.board{width:300px;height:300px}.log{height:220px}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel board-area">
+      <div style="display:flex;gap:12px;align-items:center;justify-content:center;width:100%">
+        <div class="status" id="gameStatus">Choose settings → Start game</div>
+      </div>
+
+      <div class="board" id="board" aria-label="tic tac toe board">
+        <!-- 9 cells created by JS -->
+      </div>
+
+      <div class="controls">
+        <button class="btn primary" id="startBtn">Start New Game</button>
+        <button class="btn" id="undoBtn" title="Undo last human move" disabled>Undo</button>
+        <button class="btn" id="resetScoreBtn" title="Reset scores">Reset Scores</button>
+      </div>
+
+      <div style="display:flex;gap:12px;justify-content:center;margin-top:6px">
+        <div class="small">You are: <strong id="playerMark">X</strong></div>
+        <div class="small">AI is: <strong id="aiMark">O</strong></div>
+        <div class="small">Score — You: <span id="scoreUser">0</span> | AI: <span id="scoreAI">0</span> | Ties: <span id="scoreTie">0</span></div>
+      </div>
+    </div>
+
+    <div class="panel side">
+      <div class="option-row">
+        <div>
+          <label>Choose your mark</label>
+          <div class="select">
+            <label><input type="radio" name="mark" value="X" checked> X</label>
+            <label><input type="radio" name="mark" value="O"> O</label>
+          </div>
+        </div>
+
+        <div>
+          <label>Who starts</label>
+          <div class="select">
+            <label><input type="radio" name="starter" value="human" checked> You</label>
+            <label><input type="radio" name="starter" value="ai"> AI</label>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label style="display:block;margin-bottom:6px">Game log (CLI-like)</label>
+        <div class="log" id="log" aria-live="polite"></div>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
+        <div class="small">AI difficulty: <strong>Unbeatable (Minimax)</strong></div>
+        <div style="font-size:12px;color:var(--muted)">Tip: click an empty cell or press 1-9 on keyboard.</div>
+      </div>
+    </div>
+
+    <footer class="small">Tic-Tac-Toe with Minimax AI — unbeatable. Implemented in plain JS.</footer>
+  </div>
+
+<script>
+/*
+  Tic-Tac-Toe with Minimax AI (unbeatable).
+  - Board cells indexed 0..8:
+    0 | 1 | 2
+    3 | 4 | 5
+    6 | 7 | 8
+  - Scores for minimax: AI win => +10 - depth, Human win => -10 + depth, Tie => 0
+  - Depth adjustment makes AI prefer quicker wins and delay losses.
+*/
+
+const boardEl = document.getElementById('board');
+const logEl = document.getElementById('log');
+const statusEl = document.getElementById('gameStatus');
+const startBtn = document.getElementById('startBtn');
+const undoBtn = document.getElementById('undoBtn');
+const resetScoreBtn = document.getElementById('resetScoreBtn');
+const playerMarkEl = document.getElementById('playerMark');
+const aiMarkEl = document.getElementById('aiMark');
+const scoreUserEl = document.getElementById('scoreUser');
+const scoreAIEl = document.getElementById('scoreAI');
+const scoreTieEl = document.getElementById('scoreTie');
+
+let cells = [];          // DOM cell elements
+let board = Array(9).fill(null); // current board: 'X', 'O', or null
+let human = 'X';
+let ai = 'O';
+let currentPlayer = 'human'; // 'human' or 'ai'
+let gameOver = true;
+let history = []; // track moves for undo
+let scores = { user:0, ai:0, tie:0 };
+
+// winning lines
+const LINES = [
+  [0,1,2],[3,4,5],[6,7,8],
+  [0,3,6],[1,4,7],[2,5,8],
+  [0,4,8],[2,4,6]
+];
+
+// build board DOM
+for(let i=0;i<9;i++){
+  const c = document.createElement('div');
+  c.className = 'cell';
+  c.dataset.index = i;
+  c.tabIndex = 0;
+  c.addEventListener('click', onCellClick);
+  c.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); c.click(); }
+  });
+  boardEl.appendChild(c);
+  cells.push(c);
+}
+
+// keyboard 1..9 mapping to board positions (1=>0, 9=>8)
+document.addEventListener('keydown',(e)=>{
+  if(gameOver) return;
+  const k = e.key;
+  if(/[1-9]/.test(k)){
+    const pos = parseInt(k,10)-1;
+    if(board[pos] === null && currentPlayer === 'human') {
+      makeMove(pos, human);
+    }
+  } else if(k.toLowerCase() === 'u'){ // undo quick key
+    tryUndo();
+  }
+});
+
+// UI helpers
+function log(msg){
+  const line = document.createElement('div');
+  line.textContent = msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function setStatus(txt, cls){
+  statusEl.textContent = txt;
+  statusEl.className = cls ? `status ${cls}` : 'status';
+}
+function render(){
+  for(let i=0;i<9;i++){
+    cells[i].textContent = board[i] || '';
+    cells[i].classList.toggle('disabled', board[i] !== null || gameOver);
+  }
+  playerMarkEl.textContent = human;
+  aiMarkEl.textContent = ai;
+  scoreUserEl.textContent = scores.user;
+  scoreAIEl.textContent = scores.ai;
+  scoreTieEl.textContent = scores.tie;
+  undoBtn.disabled = history.length === 0 || gameOver;
+}
+
+// game flow
+function startGame(){
+  // read options
+  human = document.querySelector('input[name="mark"]:checked').value;
+  ai = human === 'X' ? 'O' : 'X';
+  currentPlayer = document.querySelector('input[name="starter"]:checked').value;
+  board = Array(9).fill(null);
+  history = [];
+  gameOver = false;
+  log('=== New game started ===');
+  log(`You are ${human}. AI is ${ai}. ${currentPlayer === 'human' ? 'You' : 'AI'} starts.`);
+  setStatus(`Game in progress — ${currentPlayer === 'human' ? "Your turn" : "AI thinking..."}`);
+  render();
+
+  if(currentPlayer === 'ai'){
+    // slight delay to feel natural
+    setTimeout(()=>{ aiTurn(); }, 250);
+  }
+}
+
+function endGame(result, winningLine){
+  gameOver = true;
+  if(result === 'tie'){
+    log("It's a tie.");
+    setStatus("It's a tie.");
+    scores.tie++;
+  } else if(result === human){
+    log("You win! 🎉");
+    setStatus("You win!", 'winner');
+    scores.user++;
+    if(winningLine) highlightLine(winningLine);
+  } else {
+    log("AI wins — unbeatable! 🤖");
+    setStatus("AI wins", 'winner');
+    scores.ai++;
+    if(winningLine) highlightLine(winningLine);
+  }
+  render();
+}
+
+function highlightLine(line){
+  line.forEach(i => {
+    cells[i].style.boxShadow = 'inset 0 0 20px rgba(22,163,74,0.24)';
+  });
+}
+
+// Manage moves
+function onCellClick(e){
+  if(gameOver) return;
+  const idx = Number(e.currentTarget.dataset.index);
+  if(board[idx] !== null) return;
+  if(currentPlayer !== 'human') return;
+  makeMove(idx, human);
+}
+
+function makeMove(pos, mark){
+  board[pos] = mark;
+  history.push({pos, mark});
+  render();
+  log(`${mark} -> ${posToRC(pos)} (${pos})`);
+  const winner = checkWinner(board);
+  if(winner){
+    endGame(winner.player, winner.line);
+    return;
+  }
+  if(isFull(board)){
+    endGame('tie');
+    return;
+  }
+  // switch player
+  currentPlayer = (currentPlayer === 'human') ? 'ai' : 'human';
+  setStatus(currentPlayer === 'human' ? "Your turn" : "AI thinking...");
+  if(currentPlayer === 'ai'){
+    // delay AI slightly for UX
+    setTimeout(aiTurn, 220);
+  }
+}
+
+// AI
+function aiTurn(){
+  const best = findBestMove(board, ai);
+  if(best == null){ // safety
+    endGame('tie'); return;
+  }
+  makeMove(best, ai);
+}
+
+// Undo support: only undo last human move (and AI move before it if exists)
+function tryUndo(){
+  if(history.length === 0) return;
+  // if game over, disallow undo - unless user wants to restart
+  if(gameOver){
+    log('Game over — start a new game to play again.');
+    return;
+  }
+  // Undo last human move; if AI played after, undo both
+  // We'll pop until we remove last human mark
+  let popped = [];
+  while(history.length){
+    const last = history.pop();
+    board[last.pos] = null;
+    popped.push(last);
+    if(last.mark === human) break;
+  }
+  // if AI moved earlier (now last in popped), also remove it to allow fresh human move
+  if(history.length && history[history.length-1].mark === ai){
+    const lastAI = history.pop();
+    board[lastAI.pos] = null;
+    popped.push(lastAI);
+  }
+  currentPlayer = 'human';
+  log('Undo performed.');
+  render();
+}
+
+// Utility: pos -> "row,col"
+function posToRC(p){
+  const r = Math.floor(p/3) + 1;
+  const c = (p % 3) + 1;
+  return `r${r}c${c}`;
+}
+
+// Game evaluation helpers
+function checkWinner(b){
+  for(const line of LINES){
+    const [a,b1,c] = line;
+    if(b[a] && b[a] === b[b1] && b[a] === b[c]){
+      return { player: b[a], line };
+    }
+  }
+  return null;
+}
+function isFull(b){ return b.every(cell => cell !== null); }
+
+// Minimax implementation
+function findBestMove(boardState, playerMark){
+  // returns index 0..8 for best move, or null on no moves
+  const available = boardState.map((v,i)=> v===null ? i : null).filter(v=>v!==null);
+  if(available.length === 0) return null;
+
+  let bestScore = -Infinity;
+  let bestMove = null;
+  for(const idx of available){
+    boardState[idx] = playerMark;
+    const score = minimax(boardState, 0, false, playerMark);
+    boardState[idx] = null;
+    if(score > bestScore){
+      bestScore = score;
+      bestMove = idx;
+    }
+  }
+  return bestMove;
+}
+
+// minimax(board, depth, isMaximizing, aiMark)
+// This minimax uses variable scoring: +10 - depth for ai win, -10 + depth for human win.
+// This causes AI to prefer quicker wins and delay losses.
+function minimax(b, depth, isMaximizing, aiMark){
+  const winner = checkWinner(b);
+  if(winner){
+    if(winner.player === aiMark) return 10 - depth;
+    if(winner.player !== aiMark) return -10 + depth;
+  }
+  if(isFull(b)) return 0;
+
+  const humanMark = (aiMark === 'X') ? 'O' : 'X';
+
+  if(isMaximizing){
+    let maxEval = -Infinity;
+    for(let i=0;i<9;i++){
+      if(b[i] === null){
+        b[i] = aiMark;
+        const evalScore = minimax(b, depth+1, false, aiMark);
+        b[i] = null;
+        maxEval = Math.max(maxEval, evalScore);
+      }
+    }
+    return maxEval;
+  } else {
+    let minEval = Infinity;
+    for(let i=0;i<9;i++){
+      if(b[i] === null){
+        b[i] = humanMark;
+        const evalScore = minimax(b, depth+1, true, aiMark);
+        b[i] = null;
+        minEval = Math.min(minEval, evalScore);
+      }
+    }
+    return minEval;
+  }
+}
+
+// Check winner after every move then update scores
+function checkWinnerAndMaybeEnd(){
+  const winner = checkWinner(board);
+  if(winner){
+    endGame(winner.player, winner.line);
+    return true;
+  }
+  if(isFull(board)){
+    endGame('tie');
+    return true;
+  }
+  return false;
+}
+
+// Hook up buttons
+startBtn.addEventListener('click', ()=> {
+  // clear any highlight from previous lines
+  cells.forEach(c => c.style.boxShadow = '');
+  startGame();
+});
+
+undoBtn.addEventListener('click', tryUndo);
+
+resetScoreBtn.addEventListener('click', ()=>{
+  scores = {user:0, ai:0, tie:0};
+  log('Scores reset.');
+  render();
+});
+
+// initial render
+render();
+log("Welcome — click 'Start New Game' to begin. Use the options to choose mark & who starts.");
+
+// Expose a simple function to auto-start for convenience (if desired):
+// startGame();
+</script>
+</body>
+</html>
